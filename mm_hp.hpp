@@ -1,5 +1,5 @@
 // Copyright (c) 2026 Maged Michael
-// See LICENSE for licensing terms.
+// See LICENSES for licensing terms.
 
 #pragma once
 
