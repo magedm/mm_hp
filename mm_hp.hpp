@@ -54,6 +54,7 @@ struct hp_rec;
 struct hp_tc;
 struct hp_tc_flush_guard;
 struct hp_domain;
+struct hp_impl_registrar;
 struct hp_domain_exit_guard;
 
 hp_rec* hp_domain_acquire_rec();
@@ -87,7 +88,7 @@ void assert_hazard_protectable() noexcept {
 class hp_obj {
   hp_obj* next_;
   void (*reclaim_)(hp_obj*);
-  void* reserved_;  // Future ABI (pointer to P3427 cohort)
+  void* reserved_{nullptr};  // Future ABI (pointer to P3427 cohort)
 
   template <class T, class D> friend class std::hazard_pointer_obj_base;
   friend struct hp_domain;
@@ -107,7 +108,7 @@ struct hp_tc {
   static constexpr int k_max_capacity = 126;  // ABI max capacity
   static_assert(k_max_capacity < 256);        // capacity_ and count_ are uint8_t
   hp_rec* fast_{nullptr};
-  std::uint8_t capacity_{8};
+  std::uint8_t capacity_{99};
   std::uint8_t count_{0};
   bool closed_{false};
   std::array<hp_rec*, k_max_capacity> hp_recs_;
@@ -184,6 +185,7 @@ class hazard_pointer_obj_base : public mm_hp_detail::hp_obj {
   [[no_unique_address]] D deleter_;
 
  public:
+  [[gnu::noipa]]
   void retire(D d = D()) noexcept {
     mm_hp_detail::assert_hazard_protectable<T>();
     deleter_ = std::move(d);
@@ -292,12 +294,14 @@ inline constinit thread_local bool t_reclaiming{false};
 
 struct hp_domain {
   static constexpr std::size_t k_reclaim_floor = 1000;
+  static constexpr std::uint32_t k_light_fence_protection = 1u << 0;
 
   alignas(128) std::atomic<std::uintptr_t> avail_{0};
   alignas(128) std::atomic<std::size_t> rcount_{0};
                std::atomic<hp_obj*> retired_{nullptr};
   alignas(128) std::atomic<hp_rec*> hp_recs_{nullptr};
                std::atomic<std::size_t> hcount_{0};
+               std::atomic<std::uint32_t> impl_flags_{0};
   alignas(128) std::array<std::byte, 5 * 128> reserved_;  // future ABI
 
   struct hp_obj_list {
@@ -464,8 +468,9 @@ struct hp_domain {
 
 static_assert(std::is_trivially_destructible_v<hp_domain>);
 
-inline constinit hp_domain g_domain{};
+extern constinit hp_domain g_domain;
 
+[[gnu::noinline]]
 inline hp_rec* hp_domain_acquire_rec() {
   return g_domain.acquire_hp_rec();
 }
@@ -475,16 +480,25 @@ inline void hp_domain_release_rec_list(hp_rec* head, hp_rec* tail) noexcept {
   g_domain.release_hp_rec_list(head, tail);
 }
 
+[[gnu::noinline]]
 inline void hp_domain_retire_obj(hp_obj* obj) noexcept {
   g_domain.push_retired_obj(obj);
 }
+
+/// Implementation Flag Registration
+
+struct hp_impl_registrar {
+  hp_impl_registrar() noexcept {
+    g_domain.impl_flags_.fetch_or(hp_domain::k_light_fence_protection, mo::relaxed);
+  }
+}; // struct hp_impl_registrar
+
+namespace { const hp_impl_registrar g_impl_registrar; }
 
 /// Domain Exit Guard
 
 struct hp_domain_exit_guard {
   ~hp_domain_exit_guard() noexcept { g_domain.do_reclamation(); }
 }; // struct hp_domain_exit_guard
-
-inline hp_domain_exit_guard g_domain_exit_guard;
 
 } // namespace mm_hp_detail

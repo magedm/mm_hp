@@ -1,6 +1,6 @@
 # mm_hp
 
-- A performant, complete implementation of C++26 hazard pointers ([saferecl.hp]) for Linux x86_64.
+- A performant, complete implementation of C++26 hazard pointers ([saferecl.hp]) for Linux x86_64 and gcc.
 - Intended as guidance for standard library implementers on ABI robustness and as a performance reference point.
 - For readability, internal names deliberately avoid using the standard library `__x` reserved style.
 - Licensed so that standard library implementers can take all or part of this code — see [LICENSES](LICENSES).
